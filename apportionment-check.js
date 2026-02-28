@@ -4,12 +4,12 @@ const nodemailer = require('nodemailer');
 
 // Apportionment Verification Script
 // Compares tax apportionment recap values against General Ledger transactions in MongoDB
-// Supports single county, comma-separated list, or "all" counties
+// Supports single client, comma-separated list, or "all" clients
 //
 // Usage:
-//   node apportionment-check.js --county adair
-//   node apportionment-check.js --counties "adair,canadian,logan"
-//   node apportionment-check.js --counties all
+//   node apportionment-check.js --client acme
+//   node apportionment-check.js --clients "acme,globex,initech"
+//   node apportionment-check.js --clients all
 //   node apportionment-check.js --month -1    (previous month)
 //   node apportionment-check.js --email        (send email report)
 //   node apportionment-check.js --json         (output JSON for automation)
@@ -63,18 +63,18 @@ function getMonthDateRange(monthOffset = 0) {
 
 // Configuration
 const config = {
-  // Counties to process - override via --county or --counties
-  counties: (() => {
-    if (argMap.county) return [argMap.county.trim().toLowerCase()];
-    if (argMap.counties) {
-      const val = argMap.counties.trim().toLowerCase();
+  // Clients to process - override via --client or --clients
+  clients: (() => {
+    if (argMap.client) return [argMap.client.trim().toLowerCase()];
+    if (argMap.clients) {
+      const val = argMap.clients.trim().toLowerCase();
       if (val === 'all') {
-        // Replace with your own county list
-        return ['county1', 'county2', 'county3'];
+        // Replace with your own client list
+        return ['client1', 'client2', 'client3'];
       }
       return val.split(',').map(c => c.trim());
     }
-    return ['county1', 'county2', 'county3'];
+    return ['client1', 'client2', 'client3'];
   })(),
   // Date range - defaults to current month
   dateRange: argMap.month
@@ -188,10 +188,10 @@ function getTaxYearStatus(date = new Date()) {
 }
 
 // ============================================================
-// County Config
+// Client Config
 // ============================================================
 
-async function getCountyConfig(db) {
+async function getClientConfig(db) {
   const configDoc = await db.collection('configs').findOne({ scope: 'paymentConfig' });
   const noPriorTax = configDoc?.config?.noPriorTax || false;
   return { noPriorTax };
@@ -495,23 +495,23 @@ async function getFundMap(db) {
 }
 
 // ============================================================
-// Per-County Check (pure MongoDB, read-only)
+// Per-Client Check (pure MongoDB, read-only)
 // ============================================================
 
-async function checkCounty(client, county, dateRange) {
+async function checkClient(mongoClient, clientName, dateRange) {
   const result = {
-    county,
+    client: clientName,
     status: null,
     comparison: null,
     error: null
   };
 
   try {
-    // Each county has its own database, named by convention
-    const db = client.db(`app-backend-${county}`);
+    // Each client has its own database, named by convention
+    const db = mongoClient.db(`app-backend-${clientName}`);
 
-    console.log('  [1/5] Getting county config...');
-    const countyConfig = await getCountyConfig(db);
+    console.log('  [1/5] Getting client config...');
+    const clientConfig = await getClientConfig(db);
 
     console.log('  [2/5] Getting fund mapping...');
     const fundMap = await getFundMap(db);
@@ -519,7 +519,7 @@ async function checkCounty(client, county, dateRange) {
       Object.entries(fundMap).map(([k, v]) => `${k}=${v.description}`).join(', '));
 
     console.log('  [3/5] Computing tax totals from source...');
-    const taxResult = await computeTaxTotals(db, dateRange.fromDate, dateRange.toDate, countyConfig.noPriorTax);
+    const taxResult = await computeTaxTotals(db, dateRange.fromDate, dateRange.toDate, clientConfig.noPriorTax);
 
     console.log('  [4/5] Computing misc totals from source...');
     const miscResult = await computeMiscTotals(db, dateRange.fromDate, dateRange.toDate);
@@ -603,7 +603,7 @@ async function checkCounty(client, county, dateRange) {
   } catch (error) {
     result.status = 'ERROR';
     result.error = error.message;
-    console.log(`\n  Error processing ${county}: ${error.message}`);
+    console.log(`\n  Error processing ${clientName}: ${error.message}`);
   }
 
   return result;
@@ -619,15 +619,15 @@ async function main() {
   console.log('\n' + '='.repeat(60));
   console.log('APPORTIONMENT VERIFICATION SCRIPT');
   console.log('='.repeat(60));
-  console.log(`Counties: ${config.counties.join(', ')}`);
+  console.log(`Clients: ${config.clients.join(', ')}`);
   console.log(`Date Range: ${config.dateRange.fromDate} to ${config.dateRange.toDate}`);
   console.log(`Mode: Read-only MongoDB queries (no browser automation)`);
   console.log('='.repeat(60));
 
-  let client;
+  let mongoClient;
   try {
-    client = new MongoClient(config.mongodb.uri);
-    await client.connect();
+    mongoClient = new MongoClient(config.mongodb.uri);
+    await mongoClient.connect();
     console.log('MongoDB connected');
   } catch (err) {
     console.error(`MongoDB connection failed: ${err.message}`);
@@ -636,36 +636,36 @@ async function main() {
 
   const results = [];
 
-  for (let i = 0; i < config.counties.length; i++) {
-    const county = config.counties[i];
-    console.log(`\n[${i + 1}/${config.counties.length}] Processing ${county}...`);
-    const result = await checkCounty(client, county, config.dateRange);
+  for (let i = 0; i < config.clients.length; i++) {
+    const clientName = config.clients[i];
+    console.log(`\n[${i + 1}/${config.clients.length}] Processing ${clientName}...`);
+    const result = await checkClient(mongoClient, clientName, config.dateRange);
     results.push(result);
   }
 
-  // Retry failed counties
-  const failedCounties = results.filter(r => r.status === 'ERROR');
-  if (failedCounties.length > 0) {
+  // Retry failed clients
+  const failedClients = results.filter(r => r.status === 'ERROR');
+  if (failedClients.length > 0) {
     console.log('\n' + '='.repeat(60));
-    console.log(`RETRYING ${failedCounties.length} FAILED COUNTIES`);
+    console.log(`RETRYING ${failedClients.length} FAILED CLIENTS`);
     console.log('='.repeat(60));
 
-    for (const failed of failedCounties) {
-      console.log(`\n[RETRY] Processing ${failed.county}...`);
-      const retryResult = await checkCounty(client, failed.county, config.dateRange);
-      const index = results.findIndex(r => r.county === failed.county);
+    for (const failed of failedClients) {
+      console.log(`\n[RETRY] Processing ${failed.client}...`);
+      const retryResult = await checkClient(mongoClient, failed.client, config.dateRange);
+      const index = results.findIndex(r => r.client === failed.client);
       if (index !== -1) {
         if (retryResult.status !== 'ERROR') {
-          console.log(`  \u2713 Retry successful for ${failed.county}`);
+          console.log(`  \u2713 Retry successful for ${failed.client}`);
         } else {
-          console.log(`  \u2717 Retry failed for ${failed.county}: ${retryResult.error}`);
+          console.log(`  \u2717 Retry failed for ${failed.client}: ${retryResult.error}`);
         }
         results[index] = retryResult;
       }
     }
   }
 
-  await client.close();
+  await mongoClient.close();
 
   // Build summary
   const matched = results.filter(r => r.status === 'MATCH');
@@ -692,14 +692,14 @@ async function main() {
   console.log(`Total: ${results.length} | Matched: ${matched.length} | Mismatched: ${mismatched.length} | Errors: ${errors.length}`);
 
   if (matched.length > 0) {
-    console.log('\n\u2713 Matched Counties:');
-    matched.forEach(r => console.log(`  - ${r.county}`));
+    console.log('\n\u2713 Matched:');
+    matched.forEach(r => console.log(`  - ${r.client}`));
   }
 
   if (mismatched.length > 0) {
-    console.log('\n\u2717 Mismatched Counties:');
+    console.log('\n\u2717 Mismatched:');
     mismatched.forEach(r => {
-      console.log(`  - ${r.county}`);
+      console.log(`  - ${r.client}`);
       if (r.comparison) {
         for (const [key, val] of Object.entries(r.comparison)) {
           if (!val.match) {
@@ -711,8 +711,8 @@ async function main() {
   }
 
   if (errors.length > 0) {
-    console.log('\n\u26A0 Counties with Errors:');
-    errors.forEach(r => console.log(`  - ${r.county}: ${r.error}`));
+    console.log('\n\u26A0 Errors:');
+    errors.forEach(r => console.log(`  - ${r.client}: ${r.error}`));
   }
 
   console.log('='.repeat(60));
@@ -791,7 +791,7 @@ function generateEmailHtml(output) {
     <p><strong>Status:</strong> <span style="color:${statusColor}">${allGood ? 'All Matched' : 'Issues Found'}</span></p>
     <p>Total: ${summary.total} | Matched: ${summary.matched} | Mismatched: ${summary.mismatched} | Errors: ${summary.errors}</p>
     <table>
-      <tr><th>County</th><th>Status</th><th>Details</th></tr>`;
+      <tr><th>Client</th><th>Status</th><th>Details</th></tr>`;
 
   for (const r of results) {
     const cls = r.status === 'MATCH' ? 'match' : r.status === 'MISMATCH' ? 'mismatch' : 'error';
@@ -802,7 +802,7 @@ function generateEmailHtml(output) {
     } else if (r.error) {
       details = r.error.substring(0, 80);
     }
-    html += `<tr><td>${r.county}</td><td class="${cls}">${r.status}</td><td>${details}</td></tr>`;
+    html += `<tr><td>${r.client}</td><td class="${cls}">${r.status}</td><td>${details}</td></tr>`;
   }
 
   html += `</table>
