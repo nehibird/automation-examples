@@ -1,0 +1,16 @@
+{
+  "name": "automation-examples",
+  "version": "1.0.0",
+  "description": "Real-world automation scripts for county government accounting verification",
+  "scripts": {
+    "eom": "node eom-check.js",
+    "apportionment": "node apportionment-check.js"
+  },
+  "dependencies": {
+    "mongodb": "^6.0.0",
+    "nodemailer": "^6.9.0",
+    "playwright": "^1.40.0"
+  },
+  "author": "Nehemiah Reese",
+  "license": "MIT"
+}
