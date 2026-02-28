@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// End-of-Month Balance Check - Single County Mode
-// Automates EOM balance verification for county accounting web applications
-// Usage: node eom-check.js <county>
+// End-of-Month Balance Check - Single Client Mode
+// Automates EOM balance verification for multi-tenant accounting web applications
+// Usage: node eom-check.js <client>
 // Returns JSON result with balance status and financial data
 //
 // This script uses Playwright to:
-// 1. Navigate to a county's posting period page
+// 1. Navigate to a client's posting period page
 // 2. Authenticate (workstation ID + credentials)
 // 3. Click "Check End of Month Totals"
 // 4. Extract balance status and financial figures
@@ -15,7 +15,7 @@
 //   WORKSTATION_ID  - Workstation identifier (default: "99")
 //   APP_USERNAME    - Login username
 //   APP_PASSWORD    - Login password
-//   BASE_URL        - Base URL pattern for county apps (e.g., "https://{county}.example.com")
+//   BASE_URL        - Base URL pattern for client apps (e.g., "https://{client}.example.com")
 
 const { chromium } = require("playwright");
 
@@ -25,15 +25,15 @@ const config = {
     username: process.env.APP_USERNAME || "",
     password: process.env.APP_PASSWORD || ""
   },
-  baseUrl: process.env.BASE_URL || "https://{county}.example.com",
+  baseUrl: process.env.BASE_URL || "https://{client}.example.com",
   navigationTimeout: 30000,
   actionTimeout: 10000
 };
 
-async function checkCountyEOM(county) {
-  const url = `${config.baseUrl.replace("{county}", county.toLowerCase().replace(/ /g, ""))}/tax/payments/utils/postingperiod`;
+async function checkClientEOM(client) {
+  const url = `${config.baseUrl.replace("{client}", client.toLowerCase().replace(/ /g, ""))}/tax/payments/utils/postingperiod`;
   const result = {
-    county: county,
+    client: client,
     url: url,
     timestamp: new Date().toISOString(),
     success: false,
@@ -135,13 +135,13 @@ async function checkCountyEOM(county) {
 }
 
 async function main() {
-  const county = process.argv[2];
-  if (!county) {
-    console.log(JSON.stringify({ error: "No county specified", usage: "node eom-check.js <county>" }));
+  const client = process.argv[2];
+  if (!client) {
+    console.log(JSON.stringify({ error: "No client specified", usage: "node eom-check.js <client>" }));
     process.exit(1);
   }
 
-  const result = await checkCountyEOM(county);
+  const result = await checkClientEOM(client);
   console.log(JSON.stringify(result));
 }
 
